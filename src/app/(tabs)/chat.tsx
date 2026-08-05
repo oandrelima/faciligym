@@ -22,7 +22,8 @@ interface CommunityMemberRank {
 export default function ChatScreen() {
   const insets = useSafeAreaInsets();
   const { showModal, hideModal } = useAppModal();
-  const scrollViewRef = useRef<ScrollView>(null);
+  const pageScrollRef = useRef<ScrollView>(null);
+  const chatListRef = useRef<ScrollView>(null);
 
   const [user, setUser] = useState<UserProfile | null>(null);
   const [activeCommunity, setActiveCommunity] = useState<CommunityItem | null>(null);
@@ -36,6 +37,12 @@ export default function ChatScreen() {
     loadInitialData();
   }, []);
 
+  useEffect(() => {
+    if (messages.length > 0) {
+      setTimeout(() => chatListRef.current?.scrollToEnd({ animated: true }), 100);
+    }
+  }, [messages.length]);
+
   const loadInitialData = async () => {
     const u = await FaciliGymStorage.getSession();
     setUser(u);
@@ -48,7 +55,7 @@ export default function ChatScreen() {
       setActiveCommunity(comm);
       const msgs = await FaciliGymStorage.getCommunityMessages(comm.id);
       setMessages(msgs);
-      setTimeout(() => scrollViewRef.current?.scrollToEnd({ animated: true }), 200);
+      setTimeout(() => chatListRef.current?.scrollToEnd({ animated: true }), 200);
     }
   };
 
@@ -65,7 +72,7 @@ export default function ChatScreen() {
     );
 
     setMessages(updated);
-    setTimeout(() => scrollViewRef.current?.scrollToEnd({ animated: true }), 100);
+    setTimeout(() => chatListRef.current?.scrollToEnd({ animated: true }), 100);
   };
 
   const handleLeaveCommunity = async () => {
@@ -274,7 +281,7 @@ export default function ChatScreen() {
         )}
       </View>
 
-      <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false} ref={scrollViewRef}>
+      <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false} ref={pageScrollRef}>
 
         {/* ── Unconnected State (Empty) ───────────── */}
         {!activeCommunity ? (
@@ -341,27 +348,38 @@ export default function ChatScreen() {
               )}
             </View>
 
-            {/* ── Real-Time Chat Room ──────── */}
+            {/* ── Fixed Height Chat Room with Auto-Scroll ──────── */}
             <View style={styles.chatCard}>
               <Text style={styles.chatHeaderTitle}>Chat da Comunidade</Text>
 
-              {messages.length === 0 ? (
-                <View style={styles.emptyChat}>
-                  <Text style={styles.emptyChatText}>Nenhuma mensagem enviada ainda. Envie a primeira mensagem!</Text>
-                </View>
-              ) : (
-                messages.map(m => {
-                  const isMe = m.senderId === user?.id;
-                  return (
-                    <View key={m.id} style={[styles.msgRow, isMe ? styles.msgRowRight : styles.msgRowLeft]}>
-                      <Text style={styles.msgSender}>{m.senderName}</Text>
-                      <View style={[styles.msgBubble, isMe ? styles.msgBubbleRight : styles.msgBubbleLeft]}>
-                        <Text style={[styles.msgText, isMe ? styles.msgTextRight : styles.msgTextLeft]}>{m.text}</Text>
-                      </View>
+              <View style={styles.chatMessagesWrapper}>
+                <ScrollView
+                  ref={chatListRef}
+                  style={styles.chatMessagesScroll}
+                  contentContainerStyle={styles.chatMessagesContent}
+                  showsVerticalScrollIndicator={true}
+                  nestedScrollEnabled={true}
+                  onContentSizeChange={() => chatListRef.current?.scrollToEnd({ animated: true })}
+                >
+                  {messages.length === 0 ? (
+                    <View style={styles.emptyChat}>
+                      <Text style={styles.emptyChatText}>Nenhuma mensagem enviada ainda. Envie a primeira mensagem!</Text>
                     </View>
-                  );
-                })
-              )}
+                  ) : (
+                    messages.map(m => {
+                      const isMe = m.senderId === user?.id;
+                      return (
+                        <View key={m.id} style={[styles.msgRow, isMe ? styles.msgRowRight : styles.msgRowLeft]}>
+                          <Text style={styles.msgSender}>{m.senderName}</Text>
+                          <View style={[styles.msgBubble, isMe ? styles.msgBubbleRight : styles.msgBubbleLeft]}>
+                            <Text style={[styles.msgText, isMe ? styles.msgTextRight : styles.msgTextLeft]}>{m.text}</Text>
+                          </View>
+                        </View>
+                      );
+                    })
+                  )}
+                </ScrollView>
+              </View>
 
               {/* Send Input */}
               <View style={styles.chatInputRow}>
@@ -371,6 +389,7 @@ export default function ChatScreen() {
                   placeholderTextColor={Theme.colors.textMuted}
                   value={inputText}
                   onChangeText={setInputText}
+                  onSubmitEditing={handleSendMessage}
                 />
                 <TouchableOpacity style={styles.sendBtn} onPress={handleSendMessage}>
                   <Text style={styles.sendBtnText}>Enviar</Text>
@@ -427,8 +446,11 @@ const styles = StyleSheet.create({
   rankName: { flex: 1, fontSize: 13, fontWeight: '700', color: Theme.colors.textPrimary },
   rankCount: { fontSize: 12, fontWeight: '800', color: Theme.colors.textSecondary },
 
-  chatCard: { backgroundColor: Theme.colors.bg, borderRadius: Theme.radius.lg, padding: Theme.spacing.md, minHeight: 220, justifyContent: 'space-between', ...Theme.shadow.card },
+  chatCard: { backgroundColor: Theme.colors.bg, borderRadius: Theme.radius.lg, padding: Theme.spacing.md, ...Theme.shadow.card },
   chatHeaderTitle: { fontSize: 14, fontWeight: '800', color: Theme.colors.textPrimary, marginBottom: 10 },
+  chatMessagesWrapper: { height: 280, backgroundColor: Theme.colors.bgPage, borderRadius: Theme.radius.md, padding: 10, marginBottom: 4 },
+  chatMessagesScroll: { flex: 1 },
+  chatMessagesContent: { paddingBottom: 8 },
   emptyChat: { padding: 24, alignItems: 'center' },
   emptyChatText: { fontSize: 12, color: Theme.colors.textMuted, textAlign: 'center' },
 
