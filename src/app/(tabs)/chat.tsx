@@ -68,6 +68,26 @@ export default function ChatScreen() {
     setTimeout(() => scrollViewRef.current?.scrollToEnd({ animated: true }), 100);
   };
 
+  const handleLeaveCommunity = async () => {
+    if (!activeCommunity) return;
+    Alert.alert(
+      'Sair da Comunidade',
+      `Deseja realmente sair da comunidade "${activeCommunity.name}"?`,
+      [
+        { text: 'Cancelar', style: 'cancel' },
+        {
+          text: 'Sair da Comunidade',
+          style: 'destructive',
+          onPress: async () => {
+            await FaciliGymStorage.leaveCommunity();
+            setActiveCommunity(null);
+            setMessages([]);
+          },
+        },
+      ]
+    );
+  };
+
   // Modal: Criar Comunidade (Nome + Senha)
   const openCreateCommunityModal = () => {
     let commName = '';
@@ -232,13 +252,26 @@ export default function ChatScreen() {
       {/* Top Header */}
       <View style={[styles.topBar, { paddingTop: topInset }]}>
         <View style={{ flex: 1 }}>
-          <Text style={styles.topTitle}>Comunidade</Text>
-          <Text style={styles.topSub}>Grupos, ranking e mensagens</Text>
+          <Text style={styles.topTitle}>
+            {activeCommunity ? activeCommunity.name : 'Comunidade'}
+          </Text>
+          <Text style={styles.topSub}>
+            {activeCommunity ? 'Comunidade e ranking' : 'Grupos, ranking e mensagens'}
+          </Text>
         </View>
-        <TouchableOpacity style={styles.headerBtn} onPress={openCreateCommunityModal}>
-          <IconPlus color="#fff" size={14} />
-          <Text style={styles.headerBtnText}>Criar Comunidade</Text>
-        </TouchableOpacity>
+
+        {activeCommunity ? (
+          <TouchableOpacity style={styles.commAvatarBtn} onPress={handleLeaveCommunity}>
+            <Text style={styles.commAvatarText}>
+              {(activeCommunity.name || 'C')[0].toUpperCase()}
+            </Text>
+          </TouchableOpacity>
+        ) : (
+          <TouchableOpacity style={styles.headerBtn} onPress={openCreateCommunityModal}>
+            <IconPlus color="#fff" size={14} />
+            <Text style={styles.headerBtnText}>Criar Comunidade</Text>
+          </TouchableOpacity>
+        )}
       </View>
 
       <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false} ref={scrollViewRef}>
@@ -260,19 +293,6 @@ export default function ChatScreen() {
           </View>
         ) : (
           <>
-            {/* ── Connected Community Header ───────── */}
-            <View style={styles.communityCard}>
-              <View style={styles.commTopRow}>
-                <View style={{ flex: 1 }}>
-                  <Text style={styles.commName}>{activeCommunity.name}</Text>
-                  <Text style={styles.commSub}>Armazenamento Seguro no Dispositivo & NeonDB</Text>
-                </View>
-                <TouchableOpacity style={styles.switchCommBtn} onPress={openJoinCommunityModal}>
-                  <Text style={styles.switchCommText}>Trocar</Text>
-                </TouchableOpacity>
-              </View>
-            </View>
-
             {/* ── Top 1 Leader Banner & Expandable Ranking ───── */}
             <View style={styles.rankingContainer}>
               <TouchableOpacity
@@ -373,6 +393,8 @@ const styles = StyleSheet.create({
   topSub: { fontSize: 12, color: Theme.colors.textSecondary, marginTop: 1 },
   headerBtn: { backgroundColor: Theme.colors.red, flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 14, paddingVertical: 8, borderRadius: Theme.radius.full },
   headerBtnText: { color: '#fff', fontSize: 12, fontWeight: '800' },
+  commAvatarBtn: { width: 42, height: 42, borderRadius: 21, backgroundColor: Theme.colors.red, alignItems: 'center', justifyContent: 'center', borderWidth: 2, borderColor: Theme.colors.redBorder },
+  commAvatarText: { color: '#fff', fontSize: 18, fontWeight: '900' },
   scroll: { padding: Theme.spacing.md, paddingBottom: 110 },
 
   emptyCard: { backgroundColor: Theme.colors.bg, borderRadius: Theme.radius.lg, padding: 24, alignItems: 'center', gap: 10, marginTop: 20, ...Theme.shadow.card },
@@ -383,13 +405,6 @@ const styles = StyleSheet.create({
   emptyBtnPrimaryText: { color: '#fff', fontWeight: '800', fontSize: 13 },
   emptyBtnSecondary: { backgroundColor: Theme.colors.bgInput, paddingHorizontal: 18, paddingVertical: 10, borderRadius: Theme.radius.sm, borderWidth: 1, borderColor: Theme.colors.border },
   emptyBtnSecondaryText: { color: Theme.colors.textPrimary, fontWeight: '700', fontSize: 13 },
-
-  communityCard: { backgroundColor: Theme.colors.bg, borderRadius: Theme.radius.lg, padding: Theme.spacing.md, marginBottom: Theme.spacing.md, ...Theme.shadow.card },
-  commTopRow: { flexDirection: 'row', alignItems: 'center' },
-  commName: { fontSize: 18, fontWeight: '900', color: Theme.colors.textPrimary },
-  commSub: { fontSize: 11, color: Theme.colors.textMuted, marginTop: 2 },
-  switchCommBtn: { backgroundColor: Theme.colors.bgInput, paddingHorizontal: 12, paddingVertical: 6, borderRadius: Theme.radius.sm },
-  switchCommText: { fontSize: 11, fontWeight: '700', color: Theme.colors.textSecondary },
 
   rankingContainer: { marginBottom: Theme.spacing.lg },
   top1Banner: { backgroundColor: Theme.colors.red, borderRadius: Theme.radius.lg, padding: 14, flexDirection: 'row', alignItems: 'center', gap: 12, ...Theme.shadow.strong },

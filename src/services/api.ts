@@ -523,6 +523,10 @@ export class FaciliGymStorage {
     }
   }
 
+  static async leaveCommunity(): Promise<void> {
+    await AsyncStorage.removeItem('@faciligym_active_community');
+  }
+
   static async getCommunityMessages(communityId: string): Promise<CommunityMessage[]> {
     const key = `@faciligym_msgs_${communityId}`;
     let localMsgs: CommunityMessage[] = [];
