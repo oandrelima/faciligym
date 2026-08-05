@@ -1,6 +1,6 @@
 const postgres = require('postgres');
 
-const UNPOOLED_URL = 'postgresql://neondb_owner:npg_D7dywqTpAH3l@ep-twilight-violet-axiojrl6.c-4.us-east-2.aws.neon.tech/neondb?sslmode=require';
+const UNPOOLED_URL = process.env.DATABASE_URL || process.env.EXPO_PUBLIC_DATABASE_URL || '';
 
 const sql = postgres(UNPOOLED_URL, { ssl: 'require' });
 

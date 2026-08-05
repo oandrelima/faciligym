@@ -1,7 +1,7 @@
 import { neon } from '@neondatabase/serverless';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
-const DATABASE_URL = 'postgresql://neondb_owner:npg_D7dywqTpAH3l@ep-twilight-violet-axiojrl6.c-4.us-east-2.aws.neon.tech/neondb?sslmode=require';
+const DATABASE_URL = process.env.EXPO_PUBLIC_DATABASE_URL || process.env.DATABASE_URL || '';
 
 const sql = neon(DATABASE_URL);
 
