@@ -68,6 +68,22 @@ export interface WeightRecord {
   notes?: string;
 }
 
+export interface CommunityItem {
+  id: string;
+  name: string;
+  code: string;
+  createdBy: string;
+}
+
+export interface CommunityMessage {
+  id: string;
+  communityId: string;
+  senderId: string;
+  senderName: string;
+  text: string;
+  createdAt: string;
+}
+
 const MONTH_NAMES_SHORT = ['JAN', 'FEV', 'MAR', 'ABR', 'MAI', 'JUN', 'JUL', 'AGO', 'SET', 'OUT', 'NOV', 'DEZ'];
 
 export function formatDateBR(dateStr: string, includeYear: boolean = false): string {
@@ -441,5 +457,135 @@ export class FaciliGymStorage {
 
     await sql`DELETE FROM weight_history WHERE id = ${recordId} AND user_id = ${uid}`;
     return this.getWeightHistory(uid);
+  }
+
+  // ── COMMUNITIES & CHAT STORAGE ────────────────────────────────
+  static async createCommunity(name: string, code: string, userId: string): Promise<CommunityItem> {
+    const cleanName = name.trim();
+    const cleanCode = code.trim();
+    const id = `comm-${cleanName.toLowerCase().replace(/\s+/g, '-')}-${Date.now().toString(36)}`;
+    const item: CommunityItem = { id, name: cleanName, code: cleanCode, createdBy: userId };
+
+    try {
+      await sql`
+        INSERT INTO communities (id, name, code, created_by)
+        VALUES (${id}, ${cleanName}, ${cleanCode}, ${userId})
+      `;
+    } catch (err) {
+      console.log('Neon DB createCommunity warning:', err);
+    }
+
+    await AsyncStorage.setItem('@faciligym_active_community', JSON.stringify(item));
+    return item;
+  }
+
+  static async joinCommunity(name: string, code: string): Promise<CommunityItem> {
+    const cleanName = name.trim().toLowerCase();
+    const cleanCode = code.trim();
+
+    try {
+      const rows = await sql`
+        SELECT id, name, code, created_by
+        FROM communities
+        WHERE LOWER(name) = ${cleanName}
+      `;
+
+      if (rows.length > 0) {
+        const comm = rows[0];
+        if (comm.code !== cleanCode) {
+          throw new Error('Senha incorreta para a comunidade.');
+        }
+        const item: CommunityItem = {
+          id: comm.id,
+          name: comm.name,
+          code: comm.code,
+          createdBy: comm.created_by,
+        };
+        await AsyncStorage.setItem('@faciligym_active_community', JSON.stringify(item));
+        return item;
+      }
+    } catch (err: any) {
+      if (err.message && err.message.includes('Senha')) throw err;
+    }
+
+    const id = `comm-${cleanName.replace(/\s+/g, '-')}`;
+    const localItem: CommunityItem = { id, name: name.trim(), code: cleanCode, createdBy: 'user' };
+    await AsyncStorage.setItem('@faciligym_active_community', JSON.stringify(localItem));
+    return localItem;
+  }
+
+  static async getActiveCommunity(): Promise<CommunityItem | null> {
+    try {
+      const raw = await AsyncStorage.getItem('@faciligym_active_community');
+      return raw ? JSON.parse(raw) : null;
+    } catch {
+      return null;
+    }
+  }
+
+  static async getCommunityMessages(communityId: string): Promise<CommunityMessage[]> {
+    const key = `@faciligym_msgs_${communityId}`;
+    let localMsgs: CommunityMessage[] = [];
+    try {
+      const raw = await AsyncStorage.getItem(key);
+      if (raw) localMsgs = JSON.parse(raw);
+    } catch {}
+
+    try {
+      const rows = await sql`
+        SELECT id, community_id, sender_id, sender_name, text, created_at::text as created_at
+        FROM community_messages
+        WHERE community_id = ${communityId}
+        ORDER BY created_at ASC
+        LIMIT 100
+      `;
+      if (rows.length > 0) {
+        const dbMsgs: CommunityMessage[] = rows.map(r => ({
+          id: r.id,
+          communityId: r.community_id,
+          senderId: r.sender_id,
+          senderName: r.sender_name,
+          text: r.text,
+          createdAt: r.created_at,
+        }));
+        const mergedMap = new Map<string, CommunityMessage>();
+        [...localMsgs, ...dbMsgs].forEach(m => mergedMap.set(m.id, m));
+        const merged = Array.from(mergedMap.values()).sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+        await AsyncStorage.setItem(key, JSON.stringify(merged));
+        return merged;
+      }
+    } catch (err) {
+      console.log('Neon DB getCommunityMessages error:', err);
+    }
+
+    return localMsgs;
+  }
+
+  static async sendCommunityMessage(communityId: string, senderId: string, senderName: string, text: string): Promise<CommunityMessage[]> {
+    const msgId = `msg-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`;
+    const newMsg: CommunityMessage = {
+      id: msgId,
+      communityId,
+      senderId,
+      senderName,
+      text: text.trim(),
+      createdAt: new Date().toISOString(),
+    };
+
+    const key = `@faciligym_msgs_${communityId}`;
+    const existing = await this.getCommunityMessages(communityId);
+    existing.push(newMsg);
+    await AsyncStorage.setItem(key, JSON.stringify(existing));
+
+    try {
+      await sql`
+        INSERT INTO community_messages (id, community_id, sender_id, sender_name, text)
+        VALUES (${msgId}, ${communityId}, ${senderId}, ${senderName}, ${text.trim()})
+      `;
+    } catch (err) {
+      console.log('Neon DB sendCommunityMessage error:', err);
+    }
+
+    return existing;
   }
 }

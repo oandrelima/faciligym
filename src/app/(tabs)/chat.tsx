@@ -4,11 +4,12 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Theme } from '../../constants/theme';
-import { FaciliGymStorage, UserProfile, AttendanceRecord } from '../../services/api';
+import {
+  FaciliGymStorage, UserProfile, AttendanceRecord,
+  CommunityItem, CommunityMessage
+} from '../../services/api';
 import { IconPlus, IconMessage } from '../../components/Icons';
 import { useAppModal } from '../../context/ModalContext';
-import { trpc } from '../../utils/trpc';
-import { communityWs, CommunityMessage, CommunityItem } from '../../services/websocket';
 
 type RankFilter = 'week' | 'month' | 'year';
 
@@ -31,51 +32,23 @@ export default function ChatScreen() {
   const [attendanceList, setAttendanceList] = useState<AttendanceRecord[]>([]);
   const [isRankingExpanded, setIsRankingExpanded] = useState(false);
 
-  // tRPC hooks
-  const createCommunityMutation = trpc.createCommunity.useMutation();
-  const joinCommunityMutation = trpc.joinCommunity.useMutation();
-  const addMessageMutation = trpc.addCommunityMessage.useMutation();
-
-  const messagesQuery = trpc.getCommunityMessages.useQuery(
-    { communityId: activeCommunity?.id || '' },
-    { enabled: Boolean(activeCommunity?.id) }
-  );
-
   useEffect(() => {
-    loadUser();
+    loadInitialData();
   }, []);
 
-  // Update messages when tRPC query returns data
-  useEffect(() => {
-    if (messagesQuery.data) {
-      setMessages(messagesQuery.data);
-      setTimeout(() => scrollViewRef.current?.scrollToEnd({ animated: true }), 200);
-    }
-  }, [messagesQuery.data]);
-
-  // Connect to WebSocket when community changes
-  useEffect(() => {
-    if (!activeCommunity) return;
-
-    communityWs.connect(activeCommunity.id, (newMsg: CommunityMessage) => {
-      setMessages(prev => {
-        if (prev.some(m => m.id === newMsg.id)) return prev;
-        return [...prev, newMsg];
-      });
-      setTimeout(() => scrollViewRef.current?.scrollToEnd({ animated: true }), 200);
-    });
-
-    return () => {
-      communityWs.disconnect();
-    };
-  }, [activeCommunity?.id]);
-
-  const loadUser = async () => {
+  const loadInitialData = async () => {
     const u = await FaciliGymStorage.getSession();
     setUser(u);
     if (u) {
       const att = await FaciliGymStorage.getAttendance(u.id);
       setAttendanceList(att);
+    }
+    const comm = await FaciliGymStorage.getActiveCommunity();
+    if (comm) {
+      setActiveCommunity(comm);
+      const msgs = await FaciliGymStorage.getCommunityMessages(comm.id);
+      setMessages(msgs);
+      setTimeout(() => scrollViewRef.current?.scrollToEnd({ animated: true }), 200);
     }
   };
 
@@ -84,21 +57,15 @@ export default function ChatScreen() {
     const txt = inputText.trim();
     setInputText('');
 
-    // 1. Send via WebSocket real-time
-    communityWs.sendMessage(activeCommunity.id, user.id, user.name, txt);
+    const updated = await FaciliGymStorage.sendCommunityMessage(
+      activeCommunity.id,
+      user.id,
+      user.name,
+      txt
+    );
 
-    // 2. Persist via tRPC mutation
-    try {
-      await addMessageMutation.mutateAsync({
-        communityId: activeCommunity.id,
-        senderId: user.id,
-        senderName: user.name,
-        text: txt,
-      });
-      messagesQuery.refetch();
-    } catch (err) {
-      console.log('Error saving message via tRPC:', err);
-    }
+    setMessages(updated);
+    setTimeout(() => scrollViewRef.current?.scrollToEnd({ animated: true }), 100);
   };
 
   // Modal: Criar Comunidade (Nome + Senha)
@@ -142,38 +109,22 @@ export default function ChatScreen() {
                 Alert.alert('Atenção', 'Informe o nome e a senha da comunidade.');
                 return;
               }
-              const cleanName = commName.trim();
-              const cleanCode = commPassword.trim();
               const userId = u?.id || 'user-' + Date.now();
 
               try {
-                const res = await createCommunityMutation.mutateAsync({
-                  name: cleanName,
-                  code: cleanCode,
-                  userId,
-                });
+                const item = await FaciliGymStorage.createCommunity(
+                  commName.trim(),
+                  commPassword.trim(),
+                  userId
+                );
 
-                setActiveCommunity({
-                  id: res.id,
-                  name: res.name,
-                  code: res.code,
-                  createdBy: res.createdBy,
-                });
+                setActiveCommunity(item);
+                const msgs = await FaciliGymStorage.getCommunityMessages(item.id);
+                setMessages(msgs);
                 hideModal();
-                Alert.alert('Comunidade Criada!', `Sua comunidade ${res.name} foi criada com sucesso.`);
+                Alert.alert('Comunidade Criada!', `Sua comunidade ${item.name} foi criada com sucesso.`);
               } catch (err: any) {
-                console.log('tRPC createCommunity fallback:', err);
-                // Resilient local community creation
-                const id = `comm-${cleanName.toLowerCase().replace(/\s+/g, '-')}-${Date.now().toString(36)}`;
-                const fallbackItem: CommunityItem = {
-                  id,
-                  name: cleanName,
-                  code: cleanCode,
-                  createdBy: userId,
-                };
-                setActiveCommunity(fallbackItem);
-                hideModal();
-                Alert.alert('Comunidade Criada!', `Sua comunidade ${cleanName} foi criada.`);
+                Alert.alert('Erro ao criar comunidade', err.message || 'Falha ao salvar comunidade.');
               }
             }}
           >
@@ -224,34 +175,19 @@ export default function ChatScreen() {
                 Alert.alert('Atenção', 'Informe o nome e a senha da comunidade.');
                 return;
               }
-              const cleanName = commName.trim();
-              const cleanCode = commPassword.trim();
-
               try {
-                const res = await joinCommunityMutation.mutateAsync({
-                  name: cleanName,
-                  code: cleanCode,
-                });
+                const item = await FaciliGymStorage.joinCommunity(
+                  commName.trim(),
+                  commPassword.trim()
+                );
 
-                setActiveCommunity({
-                  id: res.id,
-                  name: res.name,
-                  code: res.code,
-                  createdBy: res.createdBy,
-                });
+                setActiveCommunity(item);
+                const msgs = await FaciliGymStorage.getCommunityMessages(item.id);
+                setMessages(msgs);
                 hideModal();
-                Alert.alert('Conectado!', `Você entrou na comunidade ${res.name}`);
+                Alert.alert('Conectado!', `Você entrou na comunidade ${item.name}`);
               } catch (err: any) {
-                console.log('tRPC joinCommunity fallback:', err);
-                const id = `comm-${cleanName.toLowerCase().replace(/\s+/g, '-')}`;
-                setActiveCommunity({
-                  id,
-                  name: cleanName,
-                  code: cleanCode,
-                  createdBy: 'user',
-                });
-                hideModal();
-                Alert.alert('Conectado!', `Você entrou na comunidade ${cleanName}`);
+                Alert.alert('Erro ao entrar', err.message || 'Comunidade não encontrada ou senha incorreta.');
               }
             }}
           >
@@ -297,7 +233,7 @@ export default function ChatScreen() {
       <View style={[styles.topBar, { paddingTop: topInset }]}>
         <View style={{ flex: 1 }}>
           <Text style={styles.topTitle}>Comunidade</Text>
-          <Text style={styles.topSub}>Grupos, ranking e chat em tempo real</Text>
+          <Text style={styles.topSub}>Grupos, ranking e mensagens</Text>
         </View>
         <TouchableOpacity style={styles.headerBtn} onPress={openCreateCommunityModal}>
           <IconPlus color="#fff" size={14} />
@@ -329,7 +265,7 @@ export default function ChatScreen() {
               <View style={styles.commTopRow}>
                 <View style={{ flex: 1 }}>
                   <Text style={styles.commName}>{activeCommunity.name}</Text>
-                  <Text style={styles.commSub}>Conectado via WebSocket + NeonDB</Text>
+                  <Text style={styles.commSub}>Armazenamento Seguro no Dispositivo & NeonDB</Text>
                 </View>
                 <TouchableOpacity style={styles.switchCommBtn} onPress={openJoinCommunityModal}>
                   <Text style={styles.switchCommText}>Trocar</Text>
@@ -385,9 +321,9 @@ export default function ChatScreen() {
               )}
             </View>
 
-            {/* ── Real-Time Chat Room (WebSocket + tRPC) ──────── */}
+            {/* ── Real-Time Chat Room ──────── */}
             <View style={styles.chatCard}>
-              <Text style={styles.chatHeaderTitle}>Chat da Comunidade (WebSocket Ativo)</Text>
+              <Text style={styles.chatHeaderTitle}>Chat da Comunidade</Text>
 
               {messages.length === 0 ? (
                 <View style={styles.emptyChat}>
